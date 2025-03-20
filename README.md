@@ -1,7 +1,7 @@
 # CORE-OM Reference values (AT)
 
 # Summary
-The [Clinical Outcomes in Routine Evaluation - Outcome Measure (CORE-OM)] is a multilingual self-report questionnaire designed for monitoring mental health services. We provide reference values obtained from an Austrian general population sample (N = 2004) stratified by gender and age to facilitate the interpretation of CORE-OM scores obtained in clinical samples.
+The [Clinical Outcomes in Routine Evaluation - Outcome Measure (CORE-OM)](https://www.coresystemtrust.org.uk/home/translations/german/) is a multilingual self-report questionnaire designed for monitoring mental health services. We provide reference values obtained from an Austrian general population sample (N = 2004) stratified by gender and age to facilitate the interpretation of CORE-OM scores obtained in clinical samples.
 
 # Shiny App
 A Shiny App is available [here](https://mzeldovich.shinyapps.io/CORE_OM_Reference_values_AT/) in English and German. 
