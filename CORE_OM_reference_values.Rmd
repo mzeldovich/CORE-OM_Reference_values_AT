@@ -1,0 +1,1513 @@
+---
+title: "Reference values CORE-OM"
+author: "Marina Zeldovich"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    number_sections: true
+    toc: true
+    toc_float: true
+---
+
+```{css, echo=FALSE}
+pre {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+pre[class] {
+  max-height: 300px;
+}
+```
+
+```{css, echo=FALSE}
+.scroll-300 {
+  max-height: 300px;
+  overflow-y: auto;
+  background-color: inherit;
+}
+```
+
+# Packages
+
+```{r message=F}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(table1)
+library(psych)
+#install.packages("MBESS")
+library(MBESS)
+library(corrplot)
+library(lavaan)
+library(lavaanPlot)
+library(semPlot)
+library(semTools)
+library(MatchIt)
+library(viridis)
+library(reshape2)
+library(effectsize)
+```
+
+# Read data {.tabset .tabset-fade .tabset-pills}
+
+## General population
+```{r}
+load("data_cleaned.RData")
+```
+
+```{r}
+d_healthy0 <- d1
+```
+
+```{r}
+rm(d1)
+```
+
+## Outpatients
+
+```{r}
+load("data_cleaned_clinic.RData")
+```
+
+```{r}
+d_clinic0 <- d1
+```
+
+```{r}
+rm(d1)
+```
+
+# Data preparation {.tabset .tabset-fade .tabset-pills}
+
+## Adding labels
+
+```{r}
+functioning <- paste0("core", c(1, 3, 7, 10, 12, 19, 21, 25, 26, 29, 32, 33))
+well <- paste0("core", c(4, 14, 17, 31))
+problems <- paste0("core", c(2, 5, 8, 11, 13, 15, 18, 20, 23, 27, 28, 30))
+risk <- paste0("core", c(6, 9, 16, 22, 24, 34))
+nrisk <- c(functioning, well, problems)
+total <- paste0("core", c(1:34))
+```
+
+```{r}
+symptom_burden <- paste0("core", c(1, 2, 5, 8, 10, 11, 13, 14, 15, 17, 18, 20, 23, 25, 27, 28, 29, 30, 33))
+ressources <- paste0("core", c(3, 4, 7, 12, 19, 21, 31, 32))
+risk2 <- paste0("core", c(6, 9, 16, 22, 24, 26, 34))
+```
+
+```{r}
+labs <- c("Alone and isolated", "Tense, anxious, nervous", "Someone to turn to for support (+)", 
+                  "OK about myself (+)", "Lacking in energy/enthusiasm", "Physically violent to others", 
+                  "Able to cope when things go wrong (+)", "Troubled by aches/pains", 
+                  "Thought of hurting myself", "Talking too much for me", "Tension/anxiety prevented", 
+                  "Happy with things done (+)", "Disturbed, unwanted thoughts", 
+                  "Felt like crying", "Felt panic or terror", "Made plans to end my life", 
+                  "Overwhelmed by problems", "Difficcult sleeping", "Felt warmth/affection (+)", 
+                  "Problems impossible to put to one side", "Done most things needed to (+)", "Threatened/intimidated by someone", 
+                  "Felt despairing or hopeless", "Better if dead", "Felt criticised by others", "Thought I have no friends", 
+                  "Felt unhappy", "Images/memories disturbing", "Irritable with other people", "To blame for problems", 
+                  "Optimistic about future (+)", "Achieved things wanted to (+)", "Felt humiliated or shamed", "Hurt self physically")
+```
+
+## General population
+
+```{r}
+d_healthy <- 
+  d_healthy0 %>%
+  select(ID,
+         gender,
+         age,
+         education,
+         marital,
+         migration,
+         contains("core"),
+         gad_total,
+         phq_total,
+         pss_total) %>%
+  mutate(symptom_burden = rowSums(select(., all_of(symptom_burden))), 
+         ressources = rowSums(select(., all_of(ressources))),
+         risk = rowSums(select(., all_of(risk2))),
+         sample = 0) %>%
+  filter(age >= 18) # 2007 (n = 18 < 18 years)
+```
+
+```{r}
+ #names(d_healthy)
+```
+
+## Outpatient data
+
+```{r}
+d_clinic <- 
+  d_clinic0 %>%
+  dplyr::select(id,
+         gender,
+         age,
+         education,
+         marital_status,
+         migration,
+         diagnosis_simplified,
+         contains("core")) %>%
+  rename(., ID = id,
+         marital = marital_status) %>%
+  mutate(core_func = rowSums(select(., all_of(functioning))),
+         core_prob = rowSums(select(., all_of(problems))),
+         core_well = rowSums(select(., all_of(well))),
+         core_risk = rowSums(select(., all_of(risk))),
+         core_total = rowSums(select(., all_of(total))),
+         core_total_mR = rowSums(select(., all_of(nrisk))),
+         symptom_burden = rowSums(select(., all_of(symptom_burden))), 
+         ressources = rowSums(select(., all_of(ressources))),
+         risk = rowSums(select(., all_of(risk2))),
+         sample = 1)
+
+```
+
+```{r}
+#names(d_clinic)
+```
+
+```{r}
+#d_clinic$gender #Male Female Inter Open Diverse
+#d_clinic$education #None/compulsory school, Apprenticeship, High school diploma, University degree
+#d_clinic$marital #Single Partnered/Married
+#d_clinic$migration #No migration background Migration background
+```
+
+```{r}
+#d_healthy$gender #male female diverse
+#d_healthy$education #none, compulsory/secondary school, apprenticeship, technical college/vocational secondary school, matura, university
+#d_healthy$marital #Single Partnered/Married
+#d_healthy$migration #no migration background, migration background
+```
+
+### Recoding categorical data
+
+Target categories:
+
+- Gender: Male, Female, Non-Binary
+- Education: None/primary, Secondary, Teritary
+- Marital: Single, Partnered/Married
+- Migration: No migration background, Migration background
+
+```{r}
+d_healthy_end <-
+d_healthy %>%
+  mutate(gender = recode(gender, "male" = "Male", "female" = "Female", "diverse" = "Non-Binary"),
+         education = recode(education, "none" = "None/Primary", 
+                            "compulsory/secondary school" = "Secondary", "apprenticeship" = "Secondary", "technical college/vocational secondary school" = "Secondary", "matura" = "Secondary", 
+                            "university" = "Tertiary"),
+         marital = recode(marital, "single" = "Single", "partnered" = "Partnered/Married"),
+         migration = recode(migration, "no migration background" = "No migration background", "migration background" = "Migration background"))
+```
+
+```{r}
+d_clinic_end <-
+d_clinic %>%
+  mutate(gender = recode(gender, "Male" = "Male", "Female" = "Female", "Inter" = "Non-Binary", "Open" = "Non-Binary", "Diverse" = "Non-Binary"),
+         education = recode(education, "None/compulsory school" = "None/Primary", 
+                            "Apprenticeship" = "Secondary", "High school diploma" = "Secondary", "University degree" = "Tertiary"),
+         marital = recode(marital, "Single" = "Single", "Partnered/married" = "Partnered/Married")) %>%
+  filter(., is.na(gender) == FALSE & is.na(age) == FALSE & is.na(education) == FALSE)
+```
+
+#### Checking the recoding
+
+```{r}
+d_healthy_end$gender %>% table()
+d_healthy_end$education %>% table()
+d_healthy_end$marital %>% table()
+d_healthy_end$migration %>% table()
+```
+
+```{r}
+d_clinic_end$gender %>% table()
+d_clinic_end$education %>% table()
+d_clinic_end$marital %>% table()
+d_clinic_end$migration %>% table()
+```
+
+## Merging the data
+
+```{r}
+d_healthy_end$ID <- as.character(d_healthy_end$ID)
+```
+
+```{r}
+d_end <- bind_rows(d_healthy_end, d_clinic_end)
+```
+
+```{r}
+d_end$sample <- factor(d_end$sample, 
+                       levels = c(0, 1), 
+                       labels = c("General population", "Outpatients"))
+```
+
+```{r}
+d_end$sample <- relevel(d_end$sample, ref = "Outpatients")
+```
+
+# General population - psychometric properties {.tabset .tabset-fade .tabset-pills}
+
+## Sample characteristics
+
+```{r}
+d_healthy_soc <- d_healthy_end %>%
+  select(ID, gender, age, education, marital, migration) %>%
+  mutate(ID = as.character(ID)) %>%
+  left_join(d_healthy0 %>% 
+              select(ID, state, occupation, income) %>% 
+              mutate(ID = as.character(ID)), by = "ID")
+```
+
+```{r}
+tab_1 <- table1(~ gender +
+         age +
+         state +
+         education +
+         occupation +
+         income +
+         marital +
+         migration,
+       data = d_healthy_soc, digits.pct = 1)
+```
+
+```{r}
+write.csv(tab_1, "01_tables/Table1_SampleCharacteristics.csv")
+```
+
+## Item alloactaion, skewness, kurtosis, and response patterns
+
+```{r}
+labs_model1 <- c("F", "P", "F", "W", "P", "R", "F", "P", "R", "F", "P", "F", 
+                 "P", "W", "P"," R", "W", "P", "F", "P", "F", "R", "P", "R", "F", "F", "P", "P", "F", "P", "W", "F", "F", "R")
+
+labs_model2 <- c("SB", "SB", "Re", "Re", "SB", "R", "Re", "SB", "R", "SB", "SB", "Re", "SB", 
+                 "SB", "SB", "R", "SB", "SB", "Re", "SB", "Re", "R", "SB", "R", "SB", "R", "SB", "SB", "SB", "SB", "Re", "Re", "SB", "R")
+```
+
+
+```{r}
+tab_allocation <- bind_cols("Model 1" = labs_model1, "Model 2" = labs_model2) 
+```
+
+```{r}
+tab_descriptives <- 
+  d_healthy_end %>%
+  select(core1:core34) %>%
+  psych::describe() %>%
+  dplyr::select(n, mean, sd, median, skew, kurtosis)
+```
+
+```{r}
+tab_responses <-
+  d_healthy_end %>%
+  select(core1:core34) %>%
+  pivot_longer(cols = everything(), names_to = "Item", values_to = "Response") %>%
+  group_by(Item, Response) %>%
+  summarise(Absolute_Freq = n(), .groups = "drop") %>%
+  complete(Item, Response = 0:4, fill = list(Absolute_Freq = 0)) %>%
+  group_by(Item) %>%
+  mutate(Relative_Freq = Absolute_Freq / sum(Absolute_Freq)) %>%
+  pivot_wider(names_from = Response, values_from = c(Absolute_Freq, Relative_Freq)) %>%
+  arrange(Item) %>%
+  select(Item, starts_with("Relative"))
+```
+
+```{r}
+prop.table(table(d_healthy_end$core1)) #check
+```
+
+```{r}
+tab_S1 <- cbind(tab_allocation, tab_descriptives, tab_responses) %>%
+  mutate(across(where(is.numeric), round, 2)) %>%
+  rename("not at all" = Relative_Freq_0,
+          "only occasionally" = Relative_Freq_1,
+         "sometimes" = Relative_Freq_2,
+         "often" = Relative_Freq_3,
+         "most or all the time" = Relative_Freq_4) %>%
+  dplyr::select(-Item)
+
+rownames(tab_S1) <- labs
+```
+
+```{r}
+note_tab_S1 <- paste(
+  "Note: (+) positively worded items;",
+  "No.: item number;",
+  "Model 1 (Evans et al., 2002): original four-domain structure (F: Functioning, P: Problems, W: Well-being, R: Risk);",
+  "Model 2 (Aranyi et al., 2025): three-factor structure derived from the Austrian outpatient sample (SB: symptom burden, Re: Resources, R: Risk);",
+  "M: mean, SD: standard deviation, Mdn: median, SK: skewness, KU: kurtosis;",
+  sprintf("N = %d.", nrow(d_healthy_end))
+)
+```
+
+```{r}
+# Save the table
+write.csv(tab_S1, "01_tables/TableS1_ItemsDescriptives.csv")
+
+write.table(data.frame(Note = note_tab_S1), 
+           "01_tables/TableS1_ItemsDescriptives.csv", 
+           append = TRUE, 
+           sep = ",", 
+           col.names = FALSE, 
+           row.names = FALSE)
+```
+
+## Reliability
+
+```{r}
+set.seed(12345)
+```
+
+```{r eval=FALSE}
+alpha_func <- ci.reliability(data = d_healthy_end[, functioning],
+               type="alpha",
+               conf.level=0.95,
+               interval.type="bca",
+               B=10000)
+```
+
+```{r eval=FALSE}
+omega_func <- ci.reliability(data = d_healthy_end[, functioning],
+               type="omega",
+               conf.level=0.95,
+               interval.type="bca",
+               B=10000)
+```
+
+```{r eval=FALSE}
+alpha_prob <- ci.reliability(data = d_healthy_end[, problems],
+               type="alpha",
+               conf.level=0.95,
+               interval.type="bca",
+               B=10000)
+```
+
+```{r eval=FALSE}
+omega_prob <- ci.reliability(data = d_healthy_end[, problems],
+               type="omega",
+               conf.level=0.95,
+               interval.type="bca",
+               B=10000)
+```
+
+```{r eval=FALSE}
+alpha_well <- ci.reliability(data = d_healthy_end[, well],
+               type="alpha",
+               conf.level=0.95,
+               interval.type="bca",
+               B=10000)
+```
+
+```{r eval=FALSE}
+omega_well <- ci.reliability(data = d_healthy_end[, well],
+               type="omega",
+               conf.level=0.95,
+               interval.type="bca",
+               B=10000)
+```
+
+```{r eval=FALSE}
+alpha_risk <- ci.reliability(data = d_healthy_end[, risk],
+               type="alpha",
+               conf.level=0.95,
+               interval.type="bca",
+               B=10000)
+```
+
+```{r eval=FALSE}
+omega_risk <- ci.reliability(data = d_healthy_end[, risk],
+               type="omega",
+               conf.level=0.95,
+               interval.type="bca",
+               B=10000)
+```
+
+```{r eval=FALSE}
+alpha_nrisk <- ci.reliability(data = d_healthy_end[, nrisk],
+               type="alpha",
+               conf.level=0.95,
+               interval.type="bca",
+               B=10000)
+```
+
+```{r eval=FALSE}
+omega_nrisk <- ci.reliability(data = d_healthy_end[, nrisk],
+               type="omega",
+               conf.level=0.95,
+               interval.type="bca",
+               B=10000)
+```
+
+```{r eval=FALSE}
+alpha_total <- ci.reliability(data = d_healthy_end[, total], # no solution has been found (lavaan optimizer)
+                 type="alpha",
+                 conf.level=0.95,
+                 interval.type="bca",
+                 B=10000)
+```
+
+```{r eval=FALSE}
+omega_total <- ci.reliability(data = d_healthy_end[, total],
+                 type="omega",
+                 conf.level=0.95,
+                 interval.type="bca",
+                 B=10000)
+
+```
+
+```{r eval=FALSE}
+alpha_symptom_burden <- ci.reliability(data = d_healthy_end[, symptom_burden],
+               type="alpha",
+               conf.level=0.95,
+               interval.type="bca",
+               B=10000)
+```
+
+```{r eval=FALSE}
+omega_symptom_burden <- ci.reliability(data = d_healthy_end[, symptom_burden],
+               type="omega",
+               conf.level=0.95,
+               interval.type="bca",
+               B=10000)
+```
+
+```{r eval=FALSE}
+alpha_ressources <- ci.reliability(data = d_healthy_end[, ressources],
+               type="alpha",
+               conf.level=0.95,
+               interval.type="bca",
+               B=10000)
+```
+
+```{r eval=FALSE}
+omega_ressources <- ci.reliability(data = d_healthy_end[, ressources],
+               type="omega",
+               conf.level=0.95,
+               interval.type="bca",
+               B=10000)
+```
+
+```{r eval=FALSE}
+alpha_risk2 <- ci.reliability(data = d_healthy_end[, risk2],
+               type="alpha",
+               conf.level=0.95,
+               interval.type="bca",
+               B=10000)
+```
+
+```{r eval=FALSE}
+omega_risk2 <- ci.reliability(data = d_healthy_end[, risk2],
+               type="omega",
+               conf.level=0.95,
+               interval.type="bca",
+               B=10000)
+```
+
+```{r}
+# tab2_alpha <- rbind(alpha_func, alpha_prob, alpha_well, alpha_risk, alpha_nrisk, alpha_total, 
+#                     alpha_symptom_burden, alpha_ressources, alpha_risk2)
+# 
+# tab2_omega <- rbind(omega_func, omega_prob, omega_well, omega_risk, omega_nrisk, omega_total, 
+#                     omega_symptom_burden, omega_ressources, omega_risk2)
+```
+
+
+```{r}
+# tab2 <- cbind(tab2_alpha[ , c(1, 3:4)], tab2_omega[ , c(1, 3:4)])
+```
+
+
+```{r}
+# rownames(tab2) <- c("Functioning", "Problems", "Well-being", "Risk", "Non-Risk", "Total", 
+#                                 "Symptom burden", "Resources", "Risk2")
+# 
+# colnames(tab2) <- c("est_a", "ci.lower_a", "ci.upper_a",
+#                     "est_o", "ci.lower_o", "ci.upper_o")
+```
+
+```{r}
+# write.csv(tab2, "01_tables/Table2_Reliability.csv")
+```
+
+## Factorial validity
+
+```{r}
+gof <- c("chisq.scaled", "df.scaled", "pvalue.scaled", "aic",
+         "cfi.robust", "tli.robust", 
+         "rmsea.robust", "rmsea.ci.lower.robust", "rmsea.ci.upper.robust", 
+         "srmr")
+
+```
+
+### Four domains
+
+```{r}
+mod1 <- 'F =~ core1 + core3 + core7 + core10 + core12 + core19 + core21 + core25 + core26 + core29 + core32 + core33
+               P =~ core2 + core5 + core8 + core11 + core13 + core15 + core18 + core20 + core23 + core27 + core28 + core30
+               W =~ core4 + core17 + core14 + core31               
+               R =~ core6 + core9 + core16 + core22 + core24 + core34'
+```
+
+#### ML
+
+```{r}
+fit1 <- cfa(mod1, data = d_healthy_end, estimator = "MLR") # negative covariance of latent variables 
+# results should be interpreted with caution
+```
+
+```{r}
+lavaan::lavInspect(fit1, "cov.lv") # actually OK (see below) 
+
+#       F     P     W     R
+# F 0.550                  
+# P 0.583 0.720            
+# W 0.527 0.617 0.534      
+# R 0.148 0.155 0.146 0.108
+```
+```{r}
+lavaan::lavInspect(fit1, "std.lv") # actually OK (see below) 
+
+# $psi
+#       F     P     W     R
+# F 1.000                  
+# P 0.926 1.000            
+# W 0.971 0.993 1.000      
+# R 0.612 0.559 0.608 1.000
+```
+
+```{r}
+parameterEstimates(fit1, standardized = TRUE)
+```
+
+```{r}
+summary(fit1, fit.measures=TRUE, standardized = TRUE)
+
+# Some indicators have variances exceeding 1:
+# core3 = 1.471 (Someone to turn to for support (+))
+# core19 = 1.262 (Felt warmth/affection (+))
+# core8 = 1.047 (Troubled by aches/pains)
+```
+
+```{r}
+model_1 <- fitMeasures(fit1, fit.measures = gof, baseline.model = NULL)
+```
+
+## DWLS
+
+```{r}
+fit1.1 <- cfa(mod1, data = d_healthy_end, ordered = T) 
+```
+
+```{r}
+lavaan::lavInspect(fit1.1, "cov.lv") # actually OK (see below) 
+```
+
+```{r}
+lavaan::lavInspect(fit1.1, "std.lv") # Well-being & Functioning 1
+```
+
+```{r}
+parameterEstimates(fit1.1, standardized = TRUE)
+```
+
+```{r}
+summary(fit1.1, fit.measures=TRUE, standardized = TRUE)
+# Some indicators have unstandardized variances exceeding 1
+```
+
+```{r}
+model_1.1 <- fitMeasures(fit1.1, fit.measures = gof, baseline.model = NULL)
+```
+## Visualization
+
+```{r fig.width=7, fig.height=7}
+pdf("02_figures/Figure2A_CFA.pdf", width = 7, height = 7)
+semPaths(fit1,
+         what = "std",
+         whatLabels = "std",
+         rotation = 1,
+         layout = "circle",
+         centerLevels = T,
+         nCharNodes = 12, 
+         label.scale = F,
+         label.cex = 0.5,
+         edge.label.position = 0.60,
+         nCharEdges = 10,
+         shapeMan = "rectangle", 
+         sizeInt = 1,
+         sizeLat = 7,
+         sizeMan = 7, 
+         sizeMan2 = 3,
+         groups = "latents", 
+         style = "OpenMx",
+         color = "white",
+         edge.color = "black",
+         edge.label.cex = 0.50,
+         asize = 2,
+         optimizeLatRes = T,
+         weighted = F,
+         intercepts = F,
+         residuals = T,
+         thresholds = F,
+         exoVar = F,
+         title = F, 
+         mar = c(2, 2, 5, 2),
+         borders = T)
+title("A: Model 1 (original four-domain structure)", adj = 0) # adjust margins for title
+dev.off()
+```
+
+### Three scales
+
+#### ML
+
+```{r}
+mod2 <- 'SB =~ core13 + core15 + core2 + core17 + core14 +
+                     core23 + core20 + core27 + core28 + core11 +
+                     core25 + core18 + core29 + core8 + core1 +
+                     core33 + core10 + core5 + core30
+               Re =~ core12 + core32 + core31 + core4 + core21 +
+                     core7 + core19 + core3
+               R =~ core16 + core9 + core24 + core34 + core22 +
+                     core6 + core26'
+```
+
+```{r}
+fit2 <- cfa(mod2, data = d_healthy_end, estimator = "MLR")
+```
+
+```{r}
+summary(fit2, fit.measures=TRUE, standardized = TRUE, rsquare = T)
+```
+
+```{r}
+model_2 <- fitMeasures(fit2, fit.measures = gof, baseline.model = NULL)
+```
+
+## DWLS
+
+```{r}
+fit2.1 <- cfa(mod2, data = d_healthy_end, ordered = T)
+```
+
+```{r}
+summary(fit2.1, fit.measures=TRUE, standardized = TRUE, rsquare = T)
+```
+
+```{r}
+model_2.1 <- fitMeasures(fit2.1, fit.measures = gof, baseline.model = NULL)
+```
+
+## Visualization
+
+```{r fig.width=7, fig.height=7}
+pdf("02_figures/Figure2B_CFA.pdf", width = 7, height = 7)
+  semPaths(fit2,
+              what = "std",
+              whatLabels = "std",
+              rotation = 1,
+              layout = "circle",
+              centerLevels = T,
+              nCharNodes = 12, 
+              label.scale = F,
+              label.cex = 0.55,
+              edge.label.position = 0.60,
+              nCharEdges = 10,
+              shapeMan = "rectangle", 
+              sizeInt = 1,
+              sizeLat = 7,
+              sizeMan = 8, 
+              sizeMan2 = 3,
+              groups = "latents", 
+              style = "OpenMx",
+              color = "white",
+              edge.color = "black",
+              edge.label.cex = 0.60,
+              asize = 2,
+              optimizeLatRes = T,
+              weighted = F,
+              intercepts = F,
+              residuals = T,
+              thresholds = F,
+              exoVar = F,
+              title = F, 
+              mar = c(2, 2, 5, 2),
+              borders = T)
+title("B: Model 2 (three-factor structure)", adj = 0) # adjust margins for title
+dev.off()
+```
+
+## Model fit
+
+```{r}
+tab_cfa <- round(rbind(model_1, 
+            model_1.1,
+            model_2,
+            model_2.1), 3)
+```
+
+```{r}
+rownames(tab_cfa) <- c("Model 1 (ML)", "Model 1 (DWLS)", "Model 2 (ML)", "Model 2 (DWLS)")
+```
+
+```{r}
+write.csv(tab_cfa, "01_tables/Table3_CFAModelFit.csv")
+```
+
+## Summary model coefficients
+
+```{r}
+tab_mod1_coefs <- parameterEstimates(fit1, standardized = TRUE)
+```
+
+```{r}
+tab_mod2_coefs <- parameterEstimates(fit2, standardized = TRUE)
+```
+
+```{r}
+tab_S2 <- rbind(tab_mod1_coefs, tab_mod2_coefs) %>%
+  mutate(across(where(is.numeric), round, 3)) %>%
+  mutate(pvalue = ifelse(pvalue < 0.001, "< .001", pvalue))
+```
+
+```{r}
+write.csv(tab_S2, "01_tables/TableS2_CFAModelCoefficients.csv")
+```
+
+## Construct validity
+
+```{r}
+cor_data <-
+  d_healthy_end %>%
+  dplyr::select(core_func, core_prob, core_well, core_risk, core_total_mR, core_total, 
+                symptom_burden, ressources, risk,
+                pss_total, phq_total, gad_total)
+```
+
+```{r}
+cor_matrix <- Hmisc::rcorr(as.matrix(cor_data))
+```
+
+```{r}
+cor_labels <- c("Functioning", "Problems", "Well-being", "Risk", "Non-Risk", "Total", 
+                "Symptom burden", "Resources", "Risk2", 
+                "PSS-4", "PHQ-9", "GAD-7")
+
+```
+
+```{r}
+rownames(cor_matrix$r) <- cor_labels
+colnames(cor_matrix$r) <- cor_labels
+```
+
+```{r, fig.width=7, fig.height=7}
+#pdf("02_figures/Figure3_Correlations.pdf", width = 7, height = 7)
+#par(oma = c(1, 2, 1, 1), mar = c(2, 2, 2, 2))
+
+corrplot::corrplot(corr=cor_matrix$r[rownames(cor_matrix$r)[1:9],
+                                  colnames(cor_matrix$r)[10:12]],
+                   method = "ellipse",
+                   order = "original",
+                   addCoef.col = 'black',
+                   pch.cex = 0.75,
+                   tl.pos = "lt",
+                   tl.col = 1,
+                   col = viridis(100),
+                   cl.ratio = 0.4)
+
+mtext("CORE-OM", side = 2, las = 3, adj = 0.50, line = 1, font = 1)
+mtext("Model 1", side = 2, las = 3, adj = 0.85, line = -1, font = 2)
+mtext("Model 2", side = 2, las = 3, adj = 0.20, line = -1, font = 2)
+#dev.off()
+```
+
+
+# Matching samples {.tabset .tabset-fade .tabset-pills}
+
+```{r}
+match_samples <- matchit(sample ~ gender + age + education + migration, 
+                         data = d_end, method = "nearest", ratio = 1, caliper = 0.05)
+```
+
+```{r}
+plot(match_samples, type = "density", interactive = F)
+```
+
+```{r}
+summary_data <- summary(match_samples)
+```
+
+```{r}
+rownames(summary_data$sum.all) <- c("Distance", "Gender: Male", "Gender: Female", "Gender: Non-Binary",
+                                    "Age in years", "Education: None/Primary", "Education: Secondary", "Education: Tertiary", "No migration background", "Migration background")
+
+rownames(summary_data$sum.matched) <- c("Distance", "Gender: Male", "Gender: Female", "Gender: Non-Binary",
+                                    "Age in years", "Education: None/Primary", "Education: Secondary", "Education: Tertiary", "No migration background", "Migration background")
+```
+
+## Love plot
+
+```{r}
+note_fig_s1 <- "Note. Love plot for propensity score matching on age, sex, educational attainment, and migration background between the general population sample \n and the outpatient sample (used as reference). The distance represents the estimated average propensity score difference. \n Empty circles represent the absolute standardised mean difference (ASMD) between the samples before matching, \n while filled circles represent the ASMD after matching. N = 1032."
+```
+
+```{r fig.width=9, fig.height=7}
+pdf("02_figures/FigureS1_LovePlot.pdf", width =10, height = 7)  # increased height to accommodate note
+# Set margins (bottom, left, top, right)
+par(mar = c(4, 4, 2, 2), oma = c(4, 0, 0, 0))  # added outer margin at bottom for note
+plot(summary_data, xlim = c(-1.5, 1.5))
+title("Figure S1", adj = 0)
+mtext(note_fig_s1, side = 1, line = 3, adj = 0.5, cex = 0.8, outer = TRUE)
+dev.off()
+```
+
+```{r}
+data_matched <- match.data(match_samples)
+```
+
+```{r}
+table(data_matched$sample)
+```
+
+## Sample characteristics
+
+```{r}
+label(data_matched$gender) <- "Gender"
+label(data_matched$age) <- "Age"
+label(data_matched$education) <- "Education"
+label(data_matched$marital) <- "Marital status"
+label(data_matched$migration) <- "Migration background"
+label(data_matched$core_func) <- "Functioning (12 items)"
+label(data_matched$core_prob) <- "Problems (12 items)"
+label(data_matched$core_well) <- "Well-being (4 items)"
+label(data_matched$core_risk) <- "Risk (6 items)"
+label(data_matched$core_total_mR) <- "Non-Risk (28 items)"
+label(data_matched$core_total) <- "Total (34 items)"
+label(data_matched$symptom_burden) <- "Symptom burden (19 items)"
+label(data_matched$ressources) <- "Resources (8 items)"
+label(data_matched$risk) <- "Risk (7 items)"
+```
+
+```{r}
+tab_S3 <- table1(~ gender +
+         age +
+         education +
+         marital +
+         migration +
+         core_func +
+         core_prob +
+         core_well +
+         core_risk +
+         core_total_mR +
+         core_total +
+         symptom_burden +
+         ressources +
+         risk | sample, data_matched, digits.pct = 1)
+```
+
+```{r}
+note_tab_S3 <- "Note. Gender, age, education, migration background: Matched characteristics. Migration background: Assessed as yes if either the person reported being born outside of Austria or one of their parents was born outside of Austria (general population sample) or if a person reported having a migration background (outpatient sample). M: mean, SD: standard deviation, Mdn: median, Min: minimum, Max: maximum. Functioning, Problems, Well-being, Risk (Model 1: original four-domain structure). Symptom burden, Resources, Risk (Model 2: three-factor structure derived from the Austrian outpatient sample)."
+```
+
+```{r}
+# Save the table
+write.csv(tab_S3, "01_tables/TableS3_MatchedSamplesCharacteristics.csv", row.names = FALSE)
+
+write.table(data.frame(Note = note_tab_S3), 
+           "01_tables/TableS3_MatchedSamplesCharacteristics.csv", 
+           append = TRUE, 
+           sep = ",", 
+           col.names = FALSE, 
+           row.names = FALSE)
+```
+
+# Measurment invariance {.tabset .tabset-fade .tabset-pills}
+
+## Configural invariance
+
+```{r}
+mod_configural <- as.character(measEq.syntax(configural.model = mod2,
+                              data = data_matched,
+                              estimator = "MLR",
+                              group = "sample",
+                              group.equal = "loadings"))
+```
+
+```{r}
+fit_configural <- cfa(mod2, data = data_matched, estimator = "MLR",
+                      group = "sample")
+```
+
+```{r}
+summary(fit_configural, fit.measures=TRUE, standardized = TRUE, rsquare = T)
+```
+
+## Metric invariance
+
+```{r}
+fit_metric <- cfa(mod2, data = data_matched, estimator = "MLR",
+                      group = "sample", group.equal = "loadings")
+```
+
+## Scalar invariance
+
+```{r}
+fit_scalar <- cfa(mod2, data = data_matched, estimator = "MLR",
+                      group = "sample", group.equal = c("loadings", "intercepts"))
+```
+
+## Strict invariance
+
+```{r}
+fit_strict <- cfa(mod2, data = data_matched, estimator = "MLR",
+                      group = "sample", group.equal = c("loadings", "intercepts", "residuals"))
+```
+
+## Model comparison
+
+```{r}
+gof_mi <- c("chisq.scaled", "df.scaled", "cfi.robust", "rmsea.robust", "rmsea.ci.lower.robust", "rmsea.ci.upper.robust")
+```
+
+```{r}
+mi_gof_results <- round(rbind(fitMeasures(fit_configural, gof_mi),
+      fitMeasures(fit_metric, gof_mi),
+      fitMeasures(fit_scalar, gof_mi),
+      fitMeasures(fit_strict, gof_mi)), 3)
+```
+
+```{r}
+rownames(mi_gof_results) <- c("Configural", "Metric", "Scalar", "Strict")
+
+mi_gof_results <- as.data.frame(mi_gof_results)
+```
+
+```{r}
+mi_LRTresults <- lavTestLRT(fit_configural, fit_metric, fit_scalar, fit_strict,
+                             method = "satorra.bentler.2001")
+```
+
+```{r}
+mi_LRTresults$delta_cfi <- c(NA, mi_gof_results$cfi.robust[2] - mi_gof_results$cfi.robust[1],
+                              mi_gof_results$cfi.robust[3] - mi_gof_results$cfi.robust[2],
+                              mi_gof_results$cfi.robust[4] - mi_gof_results$cfi.robust[3])
+
+mi_LRTresults$delta_rmsea <- c(NA, mi_gof_results$rmsea.robust[2] - mi_gof_results$rmsea.robust[1],
+                                mi_gof_results$rmsea.robust[3] - mi_gof_results$rmsea.robust[2],
+                                mi_gof_results$rmsea.robust[4] - mi_gof_results$rmsea.robust[3])
+```
+
+```{r}
+tab_S4 <- cbind(mi_gof_results, mi_LRTresults) %>%
+  mutate(across(where(is.numeric), round, 3)) %>%
+  dplyr::select(chisq.scaled, df.scaled, cfi.robust, rmsea.robust, rmsea.ci.lower.robust, rmsea.ci.upper.robust,
+                AIC, BIC, 'Chisq diff', 'Df diff', 'Pr(>Chisq)', delta_rmsea, delta_cfi) %>%
+  rename("χ2" = chisq.scaled, df = df.scaled, CFI = cfi.robust, RMSEA = rmsea.robust, RMSEA_lower = rmsea.ci.lower.robust, RMSEA_upper = rmsea.ci.upper.robust,
+         "Δχ2" = 'Chisq diff', "Δdf" = 'Df diff', "p" = 'Pr(>Chisq)', "ΔCFI" = delta_cfi, "ΔRMSEA" = delta_rmsea) %>%
+  mutate(p = ifelse(p < 0.001, "< .001", p))
+```
+
+```{r}
+note_tab_S4 <- "Note. (Δ)χ2: (difference) test value, (Δ)df: (difference test) degrees of freedom, (Δ)CFI: (difference test) comparative fit index, (Δ)RMSEA: (difference test) root mean square error of approximation, CI: confidence interval (90%), AIC: Akaike information criterion, BIC: Bayesian information criterion. Model fit comprises scaled (χ2, df) and robust ((Δ)CFI, (Δ)RMSEA) characteristics. Model comparison is based on raw characteristics (Δχ2, Δdf). N = 2.064"
+```
+
+```{r}
+write.csv(tab_S4, "01_tables/TableS4_MeasurementInvariance.csv", row.names = T)
+
+write.table(data.frame(Note = note_tab_S4), 
+           "01_tables/TableS4_MeasurementInvariance.csv", 
+           append = TRUE, 
+           sep = ",", 
+           col.names = FALSE, 
+           row.names = FALSE)
+```
+
+
+# Regression {.tabset .tabset-fade .tabset-pills}
+
+## Data
+
+```{r}
+d_healthy_reg <-
+  d_healthy_end %>%
+  select(., ID,
+         gender,
+         age,
+         education,
+         contains("core_"),
+         symptom_burden,
+         ressources,
+         risk) %>%
+  filter(gender != "Non-Binary") %>% # n = 3 (too few cases)
+  mutate(
+    education = recode(education, "None/Primary" = 1, "Secondary" = 1, "Tertiary" = 2),
+    education = factor(education, levels = c(1, 2), labels = c("Up to secondary", "Tertiary")),
+    age_group = cut(age, breaks = c(18, 30, 40, 50, 60, 70, 100), 
+                         labels = c("18-29", "30-39", "40-49", "50-59", "60-69", "70+"),
+                         include.lowest = TRUE))
+```
+
+```{r}
+d_healthy_reg$gender <- d_healthy_reg$gender[drop = TRUE]
+```
+
+```{r}
+table(d_healthy_reg$age_group, d_healthy_reg$gender)
+```
+
+## Distribution of the CORE-OM scores
+
+```{r}
+pdf("02_figures/FigureS2_Distribution_Scales.pdf", width = 7, height = 7)
+d_healthy_reg %>%
+  select(contains("core"), symptom_burden, ressources, risk) %>%
+  pivot_longer(cols = everything(), names_to = "Item", values_to = "Score") %>%
+  mutate(Item = factor(Item, levels = c(
+    "core_func", "core_prob", "core_well", "core_risk", "core_total_mR", "core_total", 
+    "symptom_burden", "ressources", "risk"
+  ))) %>%
+  ggplot(aes(x = Score)) +
+  geom_density(fill = "grey", alpha = 0.5) +
+  facet_wrap(~Item, scales = "free", labeller = as_labeller(c(
+    "core_func" = "Functioning",
+    "core_prob" = "Problems",
+    "core_well" = "Well-being",
+    "core_risk" = "Risk",
+    "core_total" = "Total Score",
+    "core_total_mR" = "Non-Risk",
+    "symptom_burden" = "Symptom Burden",
+    "ressources" = "Resources",
+    "risk" = "Risk2"
+  ))) +
+  labs(
+    x = "CORE-OM domain/scale",
+    y = "Density",
+    title = expression(bold("Figure S2")),
+    caption = "Note. Distribution of CORE-OM domain/scale scores in the general population sample (n = 2,004)."
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0, size = 12),
+    plot.caption = element_text(hjust = 0, size = 8, margin = margin(t = 20))
+  )
+dev.off()
+```
+
+## Total score
+
+### Linear regression
+
+```{r}
+reg_total.lm <- lm(core_total ~ gender + age_group + education, data = d_healthy_reg)
+```
+
+```{r}
+summary(reg_total.lm)
+```
+
+```{r}
+# second-order interaction
+reg_total.lm2 <- update(reg_total.lm, . ~ . ^2)
+```
+
+```{r}
+summary(reg_total.lm2)
+```
+
+```{r}
+# second-order interaction
+reg_total.lm3 <- update(reg_total.lm, . ~ . ^3)
+```
+
+```{r}
+summary(reg_total.lm3)
+```
+
+```{r}
+anova(reg_total.lm, reg_total.lm2, reg_total.lm3) 
+```
+```{r}
+AIC(reg_total.lm, reg_total.lm2, reg_total.lm3)
+```
+
+```{r}
+BIC(reg_total.lm, reg_total.lm2, reg_total.lm3)
+```
+
+### Negative binomial regression
+
+```{r}
+reg_total.nb <- MASS::glm.nb(core_total ~ gender + age_group + education, data = d_healthy_reg)
+```
+
+```{r}
+summary(reg_total.nb)
+```
+
+```{r}
+# second-order interaction
+reg_total.nb2 <- update(reg_total.nb, . ~ . ^2)
+```
+
+```{r}
+summary(reg_total.nb2)
+```
+
+```{r}
+# third-order interaction
+reg_total.nb3 <- update(reg_total.nb, . ~ . ^3)
+```
+
+```{r}
+summary(reg_total.nb3)
+```
+
+```{r}
+anova(reg_total.nb, reg_total.nb2, reg_total.nb3) 
+```
+
+```{r}
+AIC(reg_total.nb, reg_total.nb2, reg_total.nb3)
+```
+
+```{r}
+BIC(reg_total.nb, reg_total.nb2, reg_total.nb3)
+```
+
+
+## Domain/Scales
+
+```{r}
+nb.scales.1 <- function (x) {
+  nb.x <- MASS::glm.nb(x ~ gender + age_group + education, data = d_healthy_reg)
+  summary(nb.x)
+}
+```
+
+```{r}
+nb.scales.2 <- function (x) {
+  nb.x <- MASS::glm.nb(x ~ (gender + age_group + education)^2, data = d_healthy_reg)
+  summary(nb.x)
+}
+```
+
+```{r}
+nb.scales.3 <- function (x) {
+  nb.x <- MASS::glm.nb(x ~ (gender + age_group + education)^3, data = d_healthy_reg)
+  summary(nb.x)
+}
+```
+
+### Functioning
+
+```{r}
+nb.scales.1(d_healthy_reg$core_func)
+```
+
+```{r}
+nb.scales.2(d_healthy_reg$core_func)
+```
+
+```{r}
+nb.scales.3(d_healthy_reg$core_func)
+```
+
+### Problems
+
+```{r}
+nb.scales.1(d_healthy_reg$core_prob)
+```
+
+```{r}
+nb.scales.2(d_healthy_reg$core_prob)
+```
+
+```{r}
+nb.scales.3(d_healthy_reg$core_prob)
+```
+
+### Well-being
+
+```{r}
+nb.scales.1(d_healthy_reg$core_well)
+```
+
+```{r}
+nb.scales.2(d_healthy_reg$core_well)
+```
+
+```{r}
+nb.scales.3(d_healthy_reg$core_well)
+```
+
+### Risk
+
+```{r}
+nb.scales.1(d_healthy_reg$core_risk)
+```
+
+```{r}
+nb.scales.2(d_healthy_reg$core_risk)
+```
+
+```{r}
+nb.scales.3(d_healthy_reg$core_risk)
+```
+
+### Non-Risk
+
+```{r}
+nb.scales.1(d_healthy_reg$core_total_mR)
+```
+
+```{r}
+nb.scales.2(d_healthy_reg$core_total_mR)
+```
+
+```{r}
+nb.scales.3(d_healthy_reg$core_total_mR)
+```
+
+### Symptom burden
+
+```{r}
+nb.scales.1(d_healthy_reg$symptom_burden)
+```
+
+```{r}
+nb.scales.2(d_healthy_reg$symptom_burden)
+```
+
+```{r}
+nb.scales.3(d_healthy_reg$symptom_burden)
+```
+
+### Resources
+
+```{r}
+nb.scales.1(d_healthy_reg$ressources)
+```
+
+```{r}
+nb.scales.2(d_healthy_reg$ressources)
+```
+
+```{r}
+nb.scales.3(d_healthy_reg$ressources)
+```
+
+### Risk2
+
+```{r}
+nb.scales.1(d_healthy_reg$risk)
+```
+
+```{r}
+nb.scales.2(d_healthy_reg$risk)
+```
+
+```{r}
+nb.scales.3(d_healthy_reg$risk)
+```
+
+## Summary negative binomial models
+
+```{r}
+extract_nb_summaries <- function(model_func, variables) {
+  results <- lapply(variables, function(var) {
+    # Get model
+    model <- model_func(d_healthy_reg[[var]])
+    # Get model summary and coefficients
+    sum_stats <- coef(model)
+    
+    # Convert to data frame and add variable name
+    data.frame(
+      Scale = var,
+      Parameter = rownames(sum_stats),
+      Estimate = sum_stats[,"Estimate"],
+      Std_Error = sum_stats[,"Std. Error"],
+      z_value = sum_stats[,"z value"],
+      p_value = sum_stats[,"Pr(>|z|)"]
+    )
+  })
+  do.call(rbind, results)
+}
+```
+
+
+```{r}
+# domains/scales
+all_vars <- c("core_func", "core_prob", "core_well", "core_risk", "core_total_mR", "core_total",
+              "symptom_burden", "ressources", "risk")
+```
+
+
+```{r}
+sum_nb1 <- extract_nb_summaries(nb.scales.1, all_vars) %>%
+  mutate(Model = "Model 1 (Main effects)")
+```
+
+```{r}
+sum_nb2 <- extract_nb_summaries(nb.scales.2, all_vars) %>%
+  mutate(Model = "Model 2 (Two-way interactions)")
+```
+
+```{r}
+sum_nb3 <- extract_nb_summaries(nb.scales.3, all_vars) %>%
+  mutate(Model = "Model 3 (Three-way interactions)")
+```
+
+```{r}
+tab_S5 <- bind_rows(sum_nb1, sum_nb2, sum_nb3) %>%
+  mutate(Scale = recode(Scale,
+                       "core_func" = "Functioning",
+                       "core_prob" = "Problems", 
+                       "core_well" = "Well-being",
+                       "core_risk" = "Risk",
+                       "core_total_mR" = "Non-Risk",
+                       "core_total" = "Total Score",
+                       "symptom_burden" = "Symptom Burden",
+                       "ressources" = "Resources",
+                       "risk" = "Risk2")) %>%
+  mutate(across(where(is.numeric), ~round(., 3))) %>%
+  mutate(p_value = ifelse(p_value < 0.001, "< 0.001", p_value)) %>%
+  arrange(Model, Scale, Parameter)
+```
+
+```{r}
+# save
+write.csv(tab_S5, "01_tables/TableS5_Regression.csv", row.names = FALSE)
+```
+
+# Reference values {.tabset .tabset-fade .tabset-pills}
+
+```{r}
+percentiles <- c(0.025, 0.05, 0.16, 0.30, 0.40, 0.50, 0.60, 0.70, 0.85, 0.95, 0.975)
+```
+
+```{r}
+calculate_ref <- function(df, variables, percentiles) {
+  df %>%
+    group_by(gender, age_group) %>%
+    summarise(n = n(), 
+              across(all_of(variables), 
+                     ~ list(quantile(.x, probs = percentiles, na.rm = TRUE) %>% round()), 
+                     .names = "{.col}"),
+              .groups = "drop") %>%
+    pivot_longer(cols = all_of(variables), 
+                 names_to = "scale", 
+                 values_to = "percentile_values") %>%
+    unnest(percentile_values) %>%
+    mutate(percentile = rep(percentiles, times = n() / length(percentiles))) %>%
+    pivot_wider(names_from = percentile, values_from = percentile_values)
+  }
+```
+
+```{r}
+# domains/scales
+variables <- c("core_func", "core_prob", "core_well", "core_risk", "core_total", 
+                           "core_total_mR", "symptom_burden", "ressources", "risk")
+```
+
+```{r}
+# Apply function to dataset
+ref_table <- calculate_ref(d_healthy_reg, variables, percentiles)
+```
+
+```{r}
+ref_table <- ref_table %>%
+  arrange(scale, gender, age_group) %>%
+  select(scale, gender, age_group, n, "0.025":"0.975")
+```
+
+```{r}
+# check
+quantile(d_healthy_reg$core_func[d_healthy_reg$gender == "Male" &
+                                   d_healthy_reg$age_group == "18-29"], probs = percentiles, na.rm = TRUE)
+```
+
+```{r}
+write.csv(ref_table, "01_tables/Table4_ReferenceValues.csv")
+```
+
+```{r}
+d_reference_values <- d_healthy_reg %>%
+  dplyr::select(-age, -education)
+```
+
+```{r}
+# save data
+# save(d_reference_values, file = "data_reference_values.RData")
+```
+
+# Cohen's d, overlap, and probability of superiority {.tabset .tabset-fade .tabset-pills}
+
+```{r}
+# Define variables for both models
+model1_vars <- c("core_func", "core_prob", "core_well", "core_risk", "core_total_mR", "core_total")
+model2_vars <- c("symptom_burden", "ressources", "risk")
+```
+
+```{r}
+compute_effects <- function(variable_name, dataset) {
+  # Extract variable data
+  var_data <- dataset[[variable_name]]
+  
+  # Cohen's d - explicitly set control group to "General population"
+  d_value <- cohens_d(var_data ~ dataset$sample, 
+                      pooled_sd = TRUE,
+                      control = "General population")$Cohens_d
+  
+  # Cohen's U3: U3 = Φ(δ)
+  u3_value <- pnorm(d_value)
+  
+  # Overlap (OVL): OVL = 2Φ(-|δ|/2)
+  ovl_value <- 2 * pnorm(-abs(d_value)/2)
+  
+  # Probability of Superiority: CL = Φ(δ/√2)
+  ps_value <- pnorm(d_value/sqrt(2))
+  
+  return(c(
+    Cohens_d = d_value,
+    Cohens_U3 = u3_value,
+    Overlap = ovl_value,
+    Probability_Superiority = ps_value
+  ))
+}
+```
+
+```{r}
+# Calculate effect sizes
+res_ps <- data.frame(
+  t(sapply(c(model1_vars, model2_vars), 
+           function(x) compute_effects(x, data_matched)))
+)
+
+# Create formatted table
+tab_ps <- res_ps %>%
+  tibble::rownames_to_column("Scale") %>%
+  mutate(Scale = recode(Scale,
+                       "core_func" = "Functioning",
+                       "core_prob" = "Problems", 
+                       "core_well" = "Well-being",
+                       "core_risk" = "Risk",  # from core_risk (four-domain structure)
+                       "core_total_mR" = "Non-Risk",
+                       "core_total" = "Total Score",
+                       "symptom_burden" = "Symptom Burden",
+                       "ressources" = "Resources",
+                       "risk" = "Risk2"),     # from risk (three-factor structure)
+         Model = ifelse(Scale %in% c("Functioning", "Problems", "Well-being", "Risk", "Non-Risk", "Total Score"), 
+                       "Model 1", 
+                       "Model 2")) %>%
+  select(Model, Scale, everything())
+```
+
+
+```{r}
+write.csv(tab_ps, "01_tables/Table5_CohensdPS.csv")
+```
+
